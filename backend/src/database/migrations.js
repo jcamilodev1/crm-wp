@@ -16,6 +16,7 @@ class DatabaseMigrations {
             // Ejecutar migraciones pendientes
             await this.migration001_AddContactColumns();
             await this.migration002_EnsureAllTables();
+            await this.migration003_AddMediaFields();
             
             console.log('✅ Migraciones completadas exitosamente');
         } catch (error) {
@@ -181,6 +182,74 @@ class DatabaseMigrations {
                 // Por ahora solo lo reportamos
             } else {
                 console.log(`  ✅ Tabla ${table} existe`);
+            }
+        }
+
+        // Marcar migración como ejecutada
+        await new Promise((resolve, reject) => {
+            this.db.run(
+                'INSERT INTO migrations (name) VALUES (?)',
+                [migrationName],
+                (err) => {
+                    if (err) reject(err);
+                    else resolve();
+                }
+            );
+        });
+
+        console.log(`✅ Migración ${migrationName} completada`);
+    }
+
+    async migration003_AddMediaFields() {
+        const migrationName = '003_add_media_fields';
+        
+        // Verificar si ya se ejecutó esta migración
+        const executed = await new Promise((resolve, reject) => {
+            this.db.get(
+                'SELECT * FROM migrations WHERE name = ?',
+                [migrationName],
+                (err, row) => {
+                    if (err) reject(err);
+                    else resolve(row);
+                }
+            );
+        });
+
+        if (executed) {
+            console.log(`⏭️  Migración ${migrationName} ya ejecutada`);
+            return;
+        }
+
+        console.log(`🔄 Ejecutando migración: ${migrationName}`);
+
+        // Lista de columnas de media que deben existir en la tabla messages
+        const requiredMediaColumns = [
+            { name: 'media_mimetype', type: 'TEXT' },
+            { name: 'media_filename', type: 'TEXT' },
+            { name: 'media_size', type: 'INTEGER' }
+        ];
+
+        // Obtener columnas actuales de la tabla messages
+        const currentColumns = await new Promise((resolve, reject) => {
+            this.db.all("PRAGMA table_info(messages)", (err, rows) => {
+                if (err) reject(err);
+                else resolve(rows.map(row => row.name));
+            });
+        });
+
+        // Agregar columnas faltantes
+        for (const column of requiredMediaColumns) {
+            if (!currentColumns.includes(column.name)) {
+                await new Promise((resolve, reject) => {
+                    const sql = `ALTER TABLE messages ADD COLUMN ${column.name} ${column.type}`;
+                    this.db.run(sql, (err) => {
+                        if (err) reject(err);
+                        else {
+                            console.log(`  ✅ Columna ${column.name} agregada a messages`);
+                            resolve();
+                        }
+                    });
+                });
             }
         }
 

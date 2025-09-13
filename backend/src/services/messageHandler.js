@@ -27,6 +27,18 @@ class MessageHandler {
             await this.handleContactsUpdate(contacts);
         });
 
+        // Escuchar sincronización inicial de chats
+        this.whatsapp.on('initial_chats_sync', async (chats) => {
+            console.log('🔄 Procesando sincronización inicial de chats...');
+            await this.handleInitialChatsSync(chats);
+        });
+
+        // Escuchar sincronización inicial de contactos
+        this.whatsapp.on('initial_contacts_sync', async (contacts) => {
+            console.log('🔄 Procesando sincronización inicial de contactos...');
+            await this.handleContactsUpdate(contacts);
+        });
+
         // Escuchar cambios en chats
         this.whatsapp.on('chat_updated', async (chat) => {
             await this.handleChatUpdate(chat);
@@ -46,6 +58,135 @@ class MessageHandler {
         this.whatsapp.on('change_state', async (state) => {
             this.emitTypingStatus(state);
         });
+    }
+
+    // Manejar sincronización inicial de chats
+    async handleInitialChatsSync(chats) {
+        try {
+            console.log(`🔄 Sincronizando ${chats.length} chats iniciales...`);
+            
+            for (const chat of chats) {
+                try {
+                    // Procesar cada chat de forma similar a como se hace en whatsappController
+                    const contact = await chat.getContact();
+                    const contactData = {
+                        whatsapp_id: contact.id._serialized,
+                        name: contact.name || contact.pushname || contact.formattedName || contact.shortName || null,
+                        phone: contact.number || null,
+                        profile_pic_url: contact.profilePicUrl || null,
+                        is_business: contact.isBusiness || false,
+                        status: 'active',
+                        first_contact_date: new Date().toISOString(),
+                        last_contact_date: new Date().toISOString()
+                    };
+
+                    // Buscar o crear contacto
+                    let dbContact = await this.db.findContactByWhatsAppId(contact.id._serialized);
+                    if (!dbContact) {
+                        const contactId = await this.db.createContact(contactData);
+                        dbContact = await this.db.findContactByWhatsAppId(contact.id._serialized);
+                    }
+
+                    // Crear o actualizar conversación
+                    const conversationData = {
+                        contact_id: dbContact.id,
+                        whatsapp_chat_id: chat.id._serialized,
+                        is_group: chat.isGroup || false,
+                        status: 'open',
+                        last_message_at: chat.timestamp ? new Date(chat.timestamp * 1000).toISOString() : new Date().toISOString()
+                    };
+
+                    let conversation = await this.db.findConversationByChatId(chat.id._serialized);
+                    if (!conversation) {
+                        await this.db.createConversation(conversationData);
+                        conversation = await this.db.findConversationByChatId(chat.id._serialized);
+                    }
+
+                    // NUEVO: Sincronizar mensajes del chat (últimos 50)
+                    await this.syncChatMessages(chat, conversation, dbContact);
+
+                    console.log(`✅ Chat sincronizado: ${contact.name || contact.number}`);
+                } catch (error) {
+                    console.error(`❌ Error sincronizando chat ${chat.id._serialized}:`, error.message);
+                }
+            }
+
+            console.log('✅ Sincronización inicial de chats completada');
+            
+            // Emitir evento para actualizar frontend
+            if (this.io) {
+                this.io.emit('initial_sync_completed', { 
+                    type: 'chats_and_messages', 
+                    chats_count: chats.length,
+                    timestamp: new Date().toISOString()
+                });
+            }
+        } catch (error) {
+            console.error('❌ Error en sincronización inicial de chats:', error);
+        }
+    }
+
+    // Sincronizar mensajes de un chat específico
+    async syncChatMessages(chat, conversation, contact) {
+        try {
+            console.log(`📨 Sincronizando mensajes del chat: ${contact.name || contact.phone}`);
+            
+            // Obtener los últimos 20 mensajes del chat (para sincronización inicial)
+            const messages = await chat.fetchMessages({ limit: 20 });
+            console.log(`📊 ${messages.length} mensajes encontrados en ${contact.name || contact.phone}`);
+            
+            let syncedCount = 0;
+            
+            for (const message of messages.reverse()) { // Procesar del más antiguo al más nuevo
+                try {
+                    // Verificar si el mensaje ya existe
+                    const existingMessage = await this.db.findMessageByWhatsAppId(message.id._serialized);
+                    if (existingMessage) {
+                        continue; // Skip if already exists
+                    }
+
+                    // Preparar datos del mensaje
+                    const messageData = {
+                        whatsapp_message_id: message.id._serialized,
+                        conversation_id: conversation.id,
+                        contact_id: contact.id,
+                        from_me: message.fromMe,
+                        message_type: message.type || 'text',
+                        content: message.body || '',
+                        timestamp: new Date(message.timestamp * 1000).toISOString(),
+                        status: 'delivered'
+                    };
+
+                    // Procesar media si existe
+                    if (message.hasMedia) {
+                        try {
+                            const mediaInfo = await this.processMessageMedia(message);
+                            if (mediaInfo) {
+                                messageData.media_url = mediaInfo.url;
+                                messageData.media_mimetype = mediaInfo.mimetype;
+                                messageData.media_filename = mediaInfo.filename;
+                                messageData.media_size = mediaInfo.size;
+                            }
+                        } catch (mediaError) {
+                            console.warn(`⚠️ Error procesando media del mensaje ${message.id._serialized}:`, mediaError.message);
+                            // Continuar sin media
+                        }
+                    }
+
+                    // Guardar mensaje en la base de datos
+                    await this.db.createMessage(messageData);
+                    syncedCount++;
+
+                } catch (messageError) {
+                    console.error(`❌ Error sincronizando mensaje ${message.id._serialized}:`, messageError.message);
+                }
+            }
+
+            console.log(`✅ ${syncedCount} mensajes sincronizados para ${contact.name || contact.phone}`);
+            
+        } catch (error) {
+            console.error(`❌ Error sincronizando mensajes del chat ${chat.id._serialized}:`, error.message);
+        }
     }
 
     async handleContactsUpdate(contacts) {

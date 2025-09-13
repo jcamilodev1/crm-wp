@@ -204,6 +204,28 @@ export function useRealTime(options: UseRealTimeOptions = {}) {
     return unsubscribe;
   }, []);
 
+  // Manejar sincronización inicial completada
+  useEffect(() => {
+    const unsubscribe = socketService.on('initial_sync_completed', (data: any) => {
+      console.log('✅ Sincronización inicial completada:', data);
+      
+      // Invalidar todas las queries para refrescar datos
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      queryClient.invalidateQueries({ queryKey: ['contacts'] });
+      
+      if (enableToasts) {
+        toast.success('Sincronización inicial completada', {
+          description: data.type === 'chats_and_messages' 
+            ? `${data.chats_count} chats y mensajes sincronizados`
+            : `${data.count || data.chats_count} ${data.type} sincronizados exitosamente`,
+          duration: 4000,
+        });
+      }
+    });
+
+    return unsubscribe;
+  }, [queryClient, enableToasts]);
+
   // Función para solicitar sincronización
   const requestSync = useCallback(() => {
     socketService.requestSync();

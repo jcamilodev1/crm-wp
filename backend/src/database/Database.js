@@ -214,6 +214,120 @@ class Database {
         }
     }
 
+    // === MÉTODOS PARA CONTACTOS ===
+    async findContactByWhatsAppId(whatsappId) {
+        return new Promise((resolve, reject) => {
+            this.db.get(
+                'SELECT * FROM contacts WHERE whatsapp_id = ?',
+                [whatsappId],
+                (err, row) => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve(row || null);
+                    }
+                }
+            );
+        });
+    }
+
+    async createContact(contactData) {
+        return new Promise((resolve, reject) => {
+            const fields = Object.keys(contactData);
+            const placeholders = fields.map(() => '?').join(', ');
+            const values = Object.values(contactData);
+            
+            const query = `
+                INSERT INTO contacts (${fields.join(', ')})
+                VALUES (${placeholders})
+            `;
+            
+            this.db.run(query, values, function(err) {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(this.lastID);
+                }
+            });
+        });
+    }
+
+    // === MÉTODOS PARA CONVERSACIONES ===
+    async findConversationByChatId(chatId) {
+        return new Promise((resolve, reject) => {
+            this.db.get(
+                'SELECT * FROM conversations WHERE whatsapp_chat_id = ?',
+                [chatId],
+                (err, row) => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve(row || null);
+                    }
+                }
+            );
+        });
+    }
+
+    async createConversation(conversationData) {
+        return new Promise((resolve, reject) => {
+            const fields = Object.keys(conversationData);
+            const placeholders = fields.map(() => '?').join(', ');
+            const values = Object.values(conversationData);
+            
+            const query = `
+                INSERT INTO conversations (${fields.join(', ')})
+                VALUES (${placeholders})
+            `;
+            
+            this.db.run(query, values, function(err) {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(this.lastID);
+                }
+            });
+        });
+    }
+
+    // === MÉTODOS PARA MENSAJES ===
+    async createMessage(messageData) {
+        return new Promise((resolve, reject) => {
+            const fields = Object.keys(messageData);
+            const placeholders = fields.map(() => '?').join(', ');
+            const values = Object.values(messageData);
+            
+            const query = `
+                INSERT INTO messages (${fields.join(', ')})
+                VALUES (${placeholders})
+            `;
+            
+            this.db.run(query, values, function(err) {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(this.lastID);
+                }
+            });
+        });
+    }
+
+    async findMessageByWhatsAppId(whatsappMessageId) {
+        return new Promise((resolve, reject) => {
+            this.db.get(
+                'SELECT * FROM messages WHERE whatsapp_message_id = ?',
+                [whatsappMessageId],
+                (err, row) => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve(row || null);
+                    }
+                }
+            );
+        });
+    }
+
     close() {
         if (this.db) {
             this.db.close((err) => {

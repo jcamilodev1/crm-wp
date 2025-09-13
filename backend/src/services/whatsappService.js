@@ -52,13 +52,17 @@ class WhatsAppService extends EventEmitter {
         });
 
         // Evento cuando el cliente está listo
-        this.client.on('ready', () => {
+        this.client.on('ready', async () => {
             console.log('✅ Cliente de WhatsApp listo!');
             this.isReady = true;
             this.qrString = null;
             this.emit('ready');
             
-            // Iniciar sincronización automática cada 5 minutos
+            // Realizar sincronización inicial inmediata
+            console.log('🚀 Iniciando sincronización inicial...');
+            await this.performInitialSync();
+            
+            // Iniciar sincronización automática periódica
             this.startAutoSync();
         });
 
@@ -336,6 +340,27 @@ class WhatsAppService extends EventEmitter {
         } catch (error) {
             console.error('Error desconectando cliente:', error);
             throw error;
+        }
+    }
+
+    // Realizar sincronización inicial completa
+    async performInitialSync() {
+        try {
+            console.log('📋 Obteniendo chats iniciales (últimos 50)...');
+            const allChats = await this.getChats();
+            // Solo sincronizar los últimos 50 chats para optimizar
+            const recentChats = allChats.slice(0, 50);
+            console.log(`📊 ${recentChats.length} chats recientes de ${allChats.length} totales`);
+            this.emit('initial_chats_sync', recentChats);
+
+            console.log('👥 Obteniendo contactos iniciales...');
+            const contacts = await this.getAllContacts();
+            console.log(`📊 ${contacts.length} contactos encontrados`);
+            this.emit('initial_contacts_sync', contacts);
+
+            console.log('✅ Sincronización inicial completada');
+        } catch (error) {
+            console.error('❌ Error en sincronización inicial:', error);
         }
     }
 

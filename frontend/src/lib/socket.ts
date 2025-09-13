@@ -18,6 +18,7 @@ interface ServerToClientEvents {
   // Eventos de sincronización
   sync_forced: (data: any) => void;
   sync_error: (data: any) => void;
+  initial_sync_completed: (data: any) => void;
   
   // Eventos de estado
   typing_status: (data: any) => void;
@@ -110,6 +111,10 @@ class SocketService {
 
     this.socket.on('typing_status', (data) => {
       this.emitToListeners('typing_status', data);
+    });
+
+    this.socket.on('initial_sync_completed', (data) => {
+      this.emitToListeners('initial_sync_completed', data);
     });
   }
 
