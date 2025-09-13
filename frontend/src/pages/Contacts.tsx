@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { contactsApi, whatsappApi } from '@/lib/api';
 import { useRealTime } from '@/hooks/useRealTime';
-import type { Contact } from '@/types';
 import { 
   Users, 
   Search, 
@@ -19,17 +18,16 @@ import {
   Trash2,
   Archive,
   User,
-  RefreshCw,
-  Download
+  RefreshCw
 } from 'lucide-react';
 import { formatPhoneNumber } from '@/lib/utils';
 
 export function Contacts() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'blocked' | 'archived'>('all');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(20);
   const [syncingWhatsApp, setSyncingWhatsApp] = useState(false);
+  const currentPage = 1;
+  const itemsPerPage = 20;
   const queryClient = useQueryClient();
 
   // Usar tiempo real para actualizaciones automáticas
@@ -56,12 +54,6 @@ export function Contacts() {
   });
 
   const contacts = contactsResponse?.data?.contacts || [];
-  const pagination = contactsResponse?.data?.pagination || {
-    page: 1,
-    limit: itemsPerPage,
-    total: 0,
-    totalPages: 1
-  };
 
   const deleteMutation = useMutation({
     mutationFn: (contactId: number) => contactsApi.deleteContact(contactId),

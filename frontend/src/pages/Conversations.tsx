@@ -17,7 +17,8 @@ import {
   Circle,
   Archive,
   MoreVertical,
-  RefreshCw
+  RefreshCw,
+  Phone
 } from 'lucide-react';
 import { safeFormatDistanceToNow } from '@/lib/utils';
 
@@ -295,7 +296,7 @@ export function Conversations() {
                     <div className="space-y-2 flex-1">
                       <div className="flex items-center justify-between">
                         <h3 className="font-medium text-lg">
-                          Conversación #{conversation.id}
+                          {conversation.contact_name || conversation.contact_phone || `Conversación #${conversation.id}`}
                         </h3>
                         <div className="flex items-center gap-2">
                           {getStatusIcon(conversation.status)}
@@ -304,21 +305,44 @@ export function Conversations() {
                       </div>
                       
                       <div className="text-sm text-muted-foreground">
-                        Chat ID: {conversation.whatsapp_chat_id}
+                        {conversation.contact_phone ? (
+                          <div className="flex items-center gap-2">
+                            <Phone className="h-3 w-3" />
+                            {conversation.contact_phone}
+                          </div>
+                        ) : (
+                          `Chat ID: ${conversation.whatsapp_chat_id}`
+                        )}
                       </div>
                       
                       <div className="bg-gray-50 rounded-md p-3">
-                        <p className="text-sm">
-                          {conversation.is_group ? 'Conversación de grupo' : 'Conversación individual'}
-                        </p>
+                        {conversation.last_message_content ? (
+                          <p className="text-sm text-gray-700 overflow-hidden" style={{
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical'
+                          }}>
+                            "{conversation.last_message_content}"
+                          </p>
+                        ) : (
+                          <p className="text-sm text-gray-500 italic">
+                            {conversation.is_group ? 'Conversación de grupo sin mensajes' : 'Sin mensajes'}
+                          </p>
+                        )}
                         <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
-                          <span>
-                            Prioridad: {conversation.priority}
-                          </span>
-                          {conversation.last_message_at && (
+                          <div className="flex items-center gap-3">
+                            <span>Prioridad: {conversation.priority}</span>
+                            {conversation.is_group && (
+                              <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full text-xs">
+                                Grupo
+                              </span>
+                            )}
+                            <span>💬 {conversation.message_count || 0}</span>
+                          </div>
+                          {(conversation.last_message_date || conversation.last_message_at) && (
                             <div className="flex items-center gap-1">
                               <Clock className="h-3 w-3" />
-                              {safeFormatDistanceToNow(conversation.last_message_at, 'recientemente')}
+                              {safeFormatDistanceToNow(conversation.last_message_date || conversation.last_message_at, 'recientemente')}
                             </div>
                           )}
                         </div>

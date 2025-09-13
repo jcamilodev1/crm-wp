@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { 
   Download, 
-  Eye, 
   FileText, 
   Music, 
   Video,
@@ -29,7 +28,6 @@ export function MessageMedia({
   className = '' 
 }: MessageMediaProps) {
   const [imageError, setImageError] = useState(false);
-  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
   const fullUrl = `${baseUrl}${mediaUrl}`;
@@ -71,7 +69,7 @@ export function MessageMedia({
         src={fullUrl}
         alt={fileName || 'Imagen'}
         className="max-w-full h-auto max-h-64 object-cover cursor-pointer hover:opacity-90 transition-opacity"
-        onClick={() => setIsPreviewOpen(true)}
+        onClick={handleDownload}
         onError={() => setImageError(true)}
       />
       {!imageError && (
@@ -83,11 +81,8 @@ export function MessageMedia({
             <Button 
               size="sm" 
               variant="ghost" 
-              onClick={() => setIsPreviewOpen(true)}
+              onClick={handleDownload}
             >
-              <Eye className="h-3 w-3" />
-            </Button>
-            <Button size="sm" variant="ghost" onClick={handleDownload}>
               <Download className="h-3 w-3" />
             </Button>
           </div>

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,17 +41,6 @@ export function ConversationDetail() {
       }
     },
     enableToasts: false // No mostrar toasts en la página de conversación
-  });
-
-  // Query para información de la conversación
-  const { data: conversationData, isLoading: conversationLoading, error: conversationError } = useQuery({
-    queryKey: ['conversation', id],
-    queryFn: async () => {
-      if (!id) throw new Error('ID de conversación requerido');
-      const response = await conversationsApi.getConversation(id);
-      return response.data.data;
-    },
-    enabled: !!id,
   });
 
   // Query infinita para mensajes paginados
@@ -142,7 +131,7 @@ export function ConversationDetail() {
     }
   };
 
-  if (conversationLoading || messagesLoading) {
+  if (messagesLoading) {
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-4">
@@ -169,7 +158,7 @@ export function ConversationDetail() {
     );
   }
 
-  if (conversationError || messagesError) {
+  if (messagesError) {
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-4">
@@ -180,7 +169,7 @@ export function ConversationDetail() {
         </div>
         <Card>
           <CardContent className="p-6">
-            <p className="text-destructive">Error cargando conversación: {(conversationError || messagesError)?.message}</p>
+            <p className="text-destructive">Error cargando conversación: {messagesError?.message}</p>
           </CardContent>
         </Card>
       </div>
