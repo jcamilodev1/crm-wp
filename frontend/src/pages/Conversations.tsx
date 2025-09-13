@@ -29,7 +29,25 @@ export function Conversations() {
         page: 1,
         limit: 50,
       });
-      return response.data;
+      
+      let filteredConversations = response.data.data.conversations;
+      
+      // Aplicar filtros del lado del cliente
+      if (searchTerm) {
+        filteredConversations = filteredConversations.filter((conv: any) => 
+          conv.contact_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          conv.contact_phone?.includes(searchTerm) ||
+          conv.last_message_content?.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+      }
+      
+      if (filterStatus !== 'all') {
+        filteredConversations = filteredConversations.filter((conv: any) => 
+          conv.status === filterStatus
+        );
+      }
+      
+      return filteredConversations;
     },
     refetchInterval: 10000, // Refrescar cada 10 segundos
   });
@@ -152,7 +170,7 @@ export function Conversations() {
 
       {/* Lista de conversaciones */}
       <div className="space-y-4">
-        {conversations?.length === 0 ? (
+        {!Array.isArray(conversations) || conversations.length === 0 ? (
           <Card>
             <CardContent className="p-8 text-center">
               <MessageSquare className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
@@ -166,7 +184,7 @@ export function Conversations() {
             </CardContent>
           </Card>
         ) : (
-          conversations?.map((conversation) => (
+          Array.isArray(conversations) && conversations.map((conversation) => (
             <Card 
               key={conversation.id} 
               className={`hover:shadow-md transition-shadow cursor-pointer ${
@@ -236,7 +254,7 @@ export function Conversations() {
       </div>
 
       {/* Estadísticas rápidas */}
-      {conversations && conversations.length > 0 && (
+      {Array.isArray(conversations) && conversations.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle>Resumen</CardTitle>

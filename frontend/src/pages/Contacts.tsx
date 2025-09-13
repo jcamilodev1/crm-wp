@@ -33,7 +33,7 @@ export function Contacts() {
         search: searchTerm,
         status: filterStatus === 'all' ? undefined : filterStatus,
       });
-      return response.data;
+      return response.data.data.contacts;
     },
     refetchInterval: 30000,
   });
@@ -166,7 +166,7 @@ export function Contacts() {
 
       {/* Lista de contactos */}
       <div className="space-y-4">
-        {contacts?.length === 0 ? (
+        {!Array.isArray(contacts) || contacts.length === 0 ? (
           <Card>
             <CardContent className="p-8 text-center">
               <User className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
@@ -180,7 +180,7 @@ export function Contacts() {
             </CardContent>
           </Card>
         ) : (
-          contacts?.map((contact) => (
+          Array.isArray(contacts) && contacts.map((contact) => (
             <Card key={contact.id} className="hover:shadow-md transition-shadow">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
@@ -281,7 +281,7 @@ export function Contacts() {
       </div>
 
       {/* Estadísticas rápidas */}
-      {contacts && contacts.length > 0 && (
+      {Array.isArray(contacts) && contacts.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle>Resumen</CardTitle>
