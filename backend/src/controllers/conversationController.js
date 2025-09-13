@@ -6,8 +6,16 @@ class ConversationController {
     // Obtener todas las conversaciones
     getConversations = async (req, res) => {
         try {
-            const { page = 1, limit = 20, status = 'open' } = req.query;
+            const { page = 1, limit = 20, status } = req.query;
             const offset = (page - 1) * limit;
+
+            let whereClause = '';
+            let queryParams = [];
+
+            if (status) {
+                whereClause = 'WHERE conv.status = ?';
+                queryParams.push(status);
+            }
 
             const conversations = await new Promise((resolve, reject) => {
                 this.db.db.all(`
@@ -22,11 +30,11 @@ class ConversationController {
                     FROM conversations conv
                     LEFT JOIN contacts c ON conv.contact_id = c.id
                     LEFT JOIN messages m ON conv.id = m.conversation_id
-                    WHERE conv.status = ?
+                    ${whereClause}
                     GROUP BY conv.id
                     ORDER BY last_message_date DESC, conv.updated_at DESC
                     LIMIT ? OFFSET ?
-                `, [status, parseInt(limit), offset], (err, rows) => {
+                `, [...queryParams, parseInt(limit), offset], (err, rows) => {
                     if (err) reject(err);
                     else resolve(rows);
                 });
@@ -34,11 +42,15 @@ class ConversationController {
 
             // Contar total
             const total = await new Promise((resolve, reject) => {
-                this.db.db.get(`
-                    SELECT COUNT(*) as total 
-                    FROM conversations 
-                    WHERE status = ?
-                `, [status], (err, row) => {
+                let countQuery = 'SELECT COUNT(*) as total FROM conversations';
+                let countParams = [];
+
+                if (status) {
+                    countQuery += ' WHERE status = ?';
+                    countParams.push(status);
+                }
+
+                this.db.db.get(countQuery, countParams, (err, row) => {
                     if (err) reject(err);
                     else resolve(row.total);
                 });

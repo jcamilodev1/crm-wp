@@ -29,6 +29,14 @@ export interface Conversation {
   last_message_at?: string;
   created_at: string;
   updated_at: string;
+  // Campos adicionales del JOIN con contacts
+  contact_name?: string;
+  contact_phone?: string;
+  contact_whatsapp_id?: string;
+  contact_profile_pic?: string;
+  message_count?: number;
+  last_message_date?: string;
+  last_message_content?: string;
 }
 
 export interface Message {

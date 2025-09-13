@@ -1,9 +1,10 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { conversationsApi } from '@/lib/api';
+import { conversationsApi, whatsappApi } from '@/lib/api';
 import type { Conversation } from '@/types';
 import { 
   MessageSquare, 
@@ -21,6 +22,50 @@ import { safeFormatDistanceToNow } from '@/lib/utils';
 export function Conversations() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'open' | 'closed' | 'pending'>('all');
+  const [syncProgress, setSyncProgress] = useState<any>(null);
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  const handleConversationClick = (conversationId: number) => {
+    navigate(`/conversations/${conversationId}`);
+  };
+
+  // Query para obtener el estado de sincronización
+  const { data: syncStatus } = useQuery({
+    queryKey: ['sync-status'],
+    queryFn: async () => {
+      const response = await whatsappApi.getSyncStatus();
+      return response.data.data;
+    },
+    refetchInterval: syncProgress?.isRunning ? 1000 : false, // Refrescar cada segundo si está sincronizando
+    enabled: !!syncProgress,
+  });
+
+  const syncChatsMutation = useMutation({
+    mutationFn: (params?: { batchSize?: number; delay?: number }) => 
+      whatsappApi.syncChats(params),
+    onSuccess: (data) => {
+      setSyncProgress({ isRunning: true });
+      queryClient.invalidateQueries({ queryKey: ['sync-status'] });
+      alert(`Sincronización iniciada: ${data.data.data.message}`);
+    },
+    onError: (error) => {
+      console.error('Error iniciando sincronización:', error);
+      alert('Error iniciando sincronización. Ver consola para más detalles.');
+    },
+  });
+
+  // Actualizar progreso cuando cambie el estado
+  useEffect(() => {
+    if (syncStatus) {
+      setSyncProgress(syncStatus);
+      if (!syncStatus.isRunning && syncProgress?.isRunning) {
+        // La sincronización terminó
+        queryClient.invalidateQueries({ queryKey: ['conversations'] });
+        alert(`Sincronización completada! ${syncStatus.syncedChats}/${syncStatus.totalChats} chats procesados`);
+      }
+    }
+  }, [syncStatus, syncProgress, queryClient]);
 
   const { data: conversations, isLoading, error } = useQuery<Conversation[]>({
     queryKey: ['conversations', searchTerm, filterStatus],
@@ -126,6 +171,29 @@ export function Conversations() {
           Conversaciones
         </h1>
         <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={() => syncChatsMutation.mutate({ batchSize: 10, delay: 1000 })}
+            disabled={syncChatsMutation.isPending || syncProgress?.isRunning}
+          >
+            <MessageSquare className="h-4 w-4 mr-2" />
+            {syncProgress?.isRunning ? 
+              `Sincronizando... ${syncProgress.progress || 0}%` : 
+              syncChatsMutation.isPending ? 'Iniciando...' : 'Sincronizar WhatsApp'
+            }
+          </Button>
+          {syncProgress?.isRunning && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-primary transition-all duration-300"
+                  style={{ width: `${syncProgress.progress || 0}%` }}
+                />
+              </div>
+              <span>{syncProgress.syncedChats || 0}/{syncProgress.totalChats || 0}</span>
+            </div>
+          )}
           <Button variant="outline" size="sm">
             <Archive className="h-4 w-4 mr-2" />
             Archivar Seleccionadas
@@ -190,6 +258,7 @@ export function Conversations() {
               className={`hover:shadow-md transition-shadow cursor-pointer ${
                 conversation.status === 'open' ? 'border-l-4 border-l-green-500' : ''
               }`}
+              onClick={() => handleConversationClick(conversation.id)}
             >
               <CardContent className="p-4">
                 <div className="flex items-start justify-between">

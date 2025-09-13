@@ -23,6 +23,12 @@ function createWhatsAppRoutes(whatsappController) {
     // Obtener chats desde WhatsApp
     router.get('/chats', whatsappController.getChats);
 
+    // Sincronizar chats de WhatsApp con la base de datos
+    router.post('/sync-chats', whatsappController.syncChats);
+
+    // Obtener estado de sincronización
+    router.get('/sync-status', whatsappController.getSyncStatus);
+
     return router;
 }
 

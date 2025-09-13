@@ -6,6 +6,7 @@ import { Dashboard } from '@/pages/Dashboard';
 import { WhatsApp } from '@/pages/WhatsApp';
 import { Contacts } from '@/pages/Contacts';
 import { Conversations } from '@/pages/Conversations';
+import { ConversationDetail } from '@/pages/ConversationDetail';
 
 // Crear cliente de React Query
 const queryClient = new QueryClient({
@@ -28,6 +29,7 @@ function App() {
             <Route path="/whatsapp" element={<WhatsApp />} />
             <Route path="/contacts" element={<Contacts />} />
             <Route path="/conversations" element={<Conversations />} />
+            <Route path="/conversations/:id" element={<ConversationDetail />} />
             <Route path="/auto-responses" element={<div className="p-6">Auto Responses - En desarrollo</div>} />
             <Route path="/reports" element={<div className="p-6">Reports - En desarrollo</div>} />
             <Route path="/logs" element={<div className="p-6">Logs - En desarrollo</div>} />

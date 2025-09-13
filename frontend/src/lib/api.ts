@@ -36,6 +36,9 @@ export const whatsappApi = {
     api.post('/whatsapp/send-message', { to, message }),
   getContacts: () => api.get('/whatsapp/contacts'),
   getChats: () => api.get('/whatsapp/chats'),
+  syncChats: (params?: { batchSize?: number; delay?: number }) => 
+    api.post('/whatsapp/sync-chats', {}, { params }),
+  getSyncStatus: () => api.get('/whatsapp/sync-status'),
 };
 
 // Contacts API
