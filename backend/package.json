@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "init-db": "node src/database/initDB.js",
+    "init-db": "node scripts/init-db.js",
+    "setup": "npm install && npm run init-db",
     "stats": "node src/utils/crmUtils.js stats",
     "list-responses": "node src/utils/crmUtils.js list-responses",
     "add-response": "node src/utils/crmUtils.js add-response"
