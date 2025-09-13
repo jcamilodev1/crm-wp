@@ -173,6 +173,37 @@ class Database {
         });
     }
 
+    // Método para actualizar contacto
+    async updateContact(id, data) {
+        return new Promise((resolve, reject) => {
+            const fields = [];
+            const values = [];
+            
+            // Construir campos y valores dinámicamente
+            for (const [key, value] of Object.entries(data)) {
+                fields.push(`${key} = ?`);
+                values.push(value);
+            }
+            
+            // Agregar ID al final para la cláusula WHERE
+            values.push(id);
+            
+            const query = `
+                UPDATE contacts 
+                SET ${fields.join(', ')}
+                WHERE id = ?
+            `;
+            
+            this.db.run(query, values, function(err) {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(this.changes);
+                }
+            });
+        });
+    }
+
     async runMigrations() {
         try {
             const migrations = new DatabaseMigrations(this.db);

@@ -29,6 +29,12 @@ function createWhatsAppRoutes(whatsappController) {
     // Obtener estado de sincronización
     router.get('/sync-status', whatsappController.getSyncStatus);
 
+    // Forzar sincronización inmediata
+    router.post('/force-sync', whatsappController.forceSync);
+
+    // Obtener contactos con paginación
+    router.get('/contacts-paginated', whatsappController.getContactsPaginated);
+
     return router;
 }
 

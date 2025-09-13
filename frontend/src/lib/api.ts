@@ -35,10 +35,13 @@ export const whatsappApi = {
   sendMessage: (to: string, message: string) => 
     api.post('/whatsapp/send-message', { to, message }),
   getContacts: () => api.get('/whatsapp/contacts'),
+  getContactsPaginated: (params?: { page?: number; limit?: number; search?: string }) => 
+    api.get('/whatsapp/contacts-paginated', { params }),
   getChats: () => api.get('/whatsapp/chats'),
   syncChats: (params?: { batchSize?: number; delay?: number }) => 
     api.post('/whatsapp/sync-chats', {}, { params }),
   getSyncStatus: () => api.get('/whatsapp/sync-status'),
+  forceSync: () => api.post('/whatsapp/force-sync'),
 };
 
 // Contacts API
@@ -56,7 +59,8 @@ export const contactsApi = {
 export const conversationsApi = {
   getConversations: (params?: { page?: number; limit?: number }) => 
     api.get('/conversations', { params }),
-  getConversation: (id: string) => api.get(`/conversations/${id}`),
+  getConversation: (id: string, params?: { page?: number; limit?: number }) => 
+    api.get(`/conversations/${id}`, { params }),
   updateConversation: (id: string, data: any) => api.put(`/conversations/${id}`, data),
   deleteConversation: (id: string) => api.delete(`/conversations/${id}`),
   getMessages: (conversationId: string, params?: { page?: number; limit?: number }) =>

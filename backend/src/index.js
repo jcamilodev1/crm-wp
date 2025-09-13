@@ -2,6 +2,8 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const { createServer } = require('http');
+const { Server } = require('socket.io');
 
 // Servicios
 const Database = require('./database/Database');
@@ -24,6 +26,16 @@ class CRMServer {
     constructor() {
         this.app = express();
         this.port = process.env.PORT || 3001;
+        
+        // Crear servidor HTTP y Socket.IO
+        this.httpServer = createServer(this.app);
+        this.io = new Server(this.httpServer, {
+            cors: {
+                origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+                methods: ['GET', 'POST'],
+                credentials: true
+            }
+        });
         
         // Inicializar servicios
         this.database = null;
@@ -51,6 +63,9 @@ class CRMServer {
             
             // Inicializar servicios de WhatsApp
             await this.initWhatsAppServices();
+            
+            // Configurar WebSockets
+            this.setupWebSockets();
             
             // Configurar rutas
             this.setupRoutes();
@@ -81,6 +96,10 @@ class CRMServer {
         this.app.use(express.json({ limit: '10mb' }));
         this.app.use(express.urlencoded({ extended: true, limit: '10mb' }));
         
+        // Servir archivos estáticos de media
+        const path = require('path');
+        this.app.use('/media', express.static(path.join(process.cwd(), 'media')));
+        
         // Logging middleware
         this.app.use((req, res, next) => {
             console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
@@ -105,10 +124,10 @@ class CRMServer {
         this.whatsappService = new WhatsAppService();
         
         // Crear manejador de mensajes
-        this.messageHandler = new MessageHandler(this.database, this.whatsappService);
+        this.messageHandler = new MessageHandler(this.database, this.whatsappService, this.io);
         
         // Crear controladores
-        this.whatsappController = new WhatsAppController(this.whatsappService, this.messageHandler);
+        this.whatsappController = new WhatsAppController(this.whatsappService, this.messageHandler, this.io);
         this.contactController = new ContactController(this.database);
         this.conversationController = new ConversationController(this.database);
         this.crmController = new CRMController(this.database);
@@ -199,11 +218,77 @@ class CRMServer {
         });
     }
 
+    setupWebSockets() {
+        console.log('🔌 Configurando WebSockets...');
+        
+        this.io.on('connection', (socket) => {
+            console.log(`👤 Cliente conectado: ${socket.id}`);
+            
+            // Enviar estado inicial
+            socket.emit('whatsapp_status', this.whatsappService.getStatus());
+            
+            // Manejar desconexión
+            socket.on('disconnect', () => {
+                console.log(`👤 Cliente desconectado: ${socket.id}`);
+            });
+            
+            // Eventos personalizados
+            socket.on('request_sync', () => {
+                console.log('🔄 Sincronización solicitada por cliente');
+                this.whatsappController.handleSyncRequest();
+            });
+
+            // Persistir mensajes recibidos de tiempo real
+            socket.on('persist_message', async (messageData) => {
+                console.log('💾 Solicitud de persistencia de mensaje:', messageData.id);
+                try {
+                    await this.messageHandler.persistRealtimeMessage(messageData);
+                } catch (error) {
+                    console.error('Error persistiendo mensaje desde WebSocket:', error);
+                }
+            });
+        });
+
+        // Configurar persistencia automática para mensajes emitidos
+        this.setupAutoPersistence();
+        
+        console.log('✅ WebSockets configurados');
+    }
+
+    setupAutoPersistence() {
+        console.log('💾 Configurando persistencia automática...');
+        
+        // Interceptar emisiones de new_message para persistir automáticamente
+        const originalEmit = this.io.emit.bind(this.io);
+        
+        this.io.emit = (...args) => {
+            const [event, data] = args;
+            
+            // Si es un nuevo mensaje, persistirlo automáticamente
+            if (event === 'new_message' && data) {
+                // Persistir en background sin bloquear la emisión
+                setTimeout(async () => {
+                    try {
+                        await this.messageHandler.persistRealtimeMessage(data);
+                    } catch (error) {
+                        console.error('Error en persistencia automática:', error);
+                    }
+                }, 0);
+            }
+            
+            // Continuar con la emisión normal
+            return originalEmit(...args);
+        };
+        
+        console.log('✅ Persistencia automática configurada');
+    }
+
     startServer() {
-        this.server = this.app.listen(this.port, () => {
+        this.server = this.httpServer.listen(this.port, () => {
             console.log(`✅ Servidor corriendo en puerto ${this.port}`);
             console.log(`🌐 Health check: http://localhost:${this.port}/health`);
             console.log(`📡 API base URL: http://localhost:${this.port}/api`);
+            console.log(`🔌 WebSocket server: ws://localhost:${this.port}`);
         });
     }
 

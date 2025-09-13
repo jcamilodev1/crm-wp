@@ -1,12 +1,14 @@
 
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Toaster } from 'sonner';
 import { Layout } from '@/components/Layout';
 import { Dashboard } from '@/pages/Dashboard';
 import { WhatsApp } from '@/pages/WhatsApp';
 import { Contacts } from '@/pages/Contacts';
 import { Conversations } from '@/pages/Conversations';
 import { ConversationDetail } from '@/pages/ConversationDetail';
+import { useRealTime } from '@/hooks/useRealTime';
 
 // Crear cliente de React Query
 const queryClient = new QueryClient({
@@ -18,9 +20,18 @@ const queryClient = new QueryClient({
   },
 });
 
-function App() {
+// Componente interno para manejar tiempo real
+function AppContent() {
+  // Inicializar conexión de tiempo real para toda la app
+  useRealTime({
+    enableToasts: true,
+    onWhatsAppStatusChange: (status) => {
+      console.log('📱 Estado de WhatsApp cambió:', status);
+    }
+  });
+
   return (
-    <QueryClientProvider client={queryClient}>
+    <>
       <Router>
         <Layout>
           <Routes>
@@ -37,6 +48,22 @@ function App() {
           </Routes>
         </Layout>
       </Router>
+      
+      {/* Toaster para notificaciones en tiempo real */}
+      <Toaster 
+        position="top-right" 
+        richColors 
+        expand={true}
+        duration={4000}
+      />
+    </>
+  );
+}
+
+function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AppContent />
     </QueryClientProvider>
   );
 }

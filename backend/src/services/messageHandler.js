@@ -1,7 +1,8 @@
 class MessageHandler {
-    constructor(database, whatsappService) {
+    constructor(database, whatsappService, io) {
         this.db = database;
         this.whatsapp = whatsappService;
+        this.io = io;
         this.setupEventHandlers();
     }
 
@@ -20,6 +21,76 @@ class MessageHandler {
         this.whatsapp.on('message_ack', async (message, ack) => {
             await this.handleMessageAck(message, ack);
         });
+        
+        // Escuchar actualizaciones de contactos
+        this.whatsapp.on('contacts_update', async (contacts) => {
+            await this.handleContactsUpdate(contacts);
+        });
+
+        // Escuchar cambios en chats
+        this.whatsapp.on('chat_updated', async (chat) => {
+            await this.handleChatUpdate(chat);
+        });
+
+        // Escuchar mensajes editados
+        this.whatsapp.on('message_edit', async (message, newBody, prevBody) => {
+            await this.handleMessageEdit(message, newBody, prevBody);
+        });
+
+        // Escuchar mensajes eliminados
+        this.whatsapp.on('message_revoke_everyone', async (message) => {
+            await this.handleMessageRevoke(message);
+        });
+
+        // Escuchar cuando el usuario está escribiendo
+        this.whatsapp.on('change_state', async (state) => {
+            this.emitTypingStatus(state);
+        });
+    }
+
+    async handleContactsUpdate(contacts) {
+        try {
+            console.log(`🔄 Actualizando ${contacts.length} contactos`);
+            let updatedCount = 0;
+            
+            for (const contact of contacts) {
+                try {
+                    // Verificar si el contacto ya existe
+                    let dbContact = await this.db.findContactByWhatsAppId(contact.id._serialized);
+                    
+                    if (dbContact) {
+                        // Actualizar contacto existente
+                        const contactData = {
+                            name: contact.name || contact.pushname || dbContact.name,
+                            phone: contact.number || dbContact.phone,
+                            is_business: contact.isBusiness || dbContact.is_business,
+                            updated_at: new Date().toISOString()
+                        };
+                        
+                        await this.db.updateContact(dbContact.id, contactData);
+                        updatedCount++;
+                    } else {
+                        // Crear nuevo contacto
+                        const contactData = {
+                            whatsapp_id: contact.id._serialized,
+                            name: contact.name || contact.pushname || null,
+                            phone: contact.number || null,
+                            is_business: contact.isBusiness || false,
+                            status: 'active'
+                        };
+                        
+                        await this.db.createContact(contactData);
+                        updatedCount++;
+                    }
+                } catch (error) {
+                    console.warn(`⚠️  Error actualizando contacto ${contact.id._serialized}:`, error.message);
+                }
+            }
+            
+            console.log(`✅ ${updatedCount}/${contacts.length} contactos actualizados`);
+        } catch (error) {
+            console.error('Error en actualización de contactos:', error);
+        }
     }
 
     async handleIncomingMessage(message) {
@@ -37,6 +108,9 @@ class MessageHandler {
 
             // Guardar el mensaje en la base de datos
             await this.saveMessage(message, conversation.id, contact.id);
+
+            // Emitir mensaje en tiempo real
+            this.emitNewMessage(message, conversation, contact);
 
             // Verificar respuestas automáticas
             await this.checkAutoResponses(message);
@@ -56,6 +130,9 @@ class MessageHandler {
                 const contact = await this.getOrCreateContact(message);
                 const conversation = await this.getOrCreateConversation(message, contact.id);
                 await this.saveMessage(message, conversation.id, contact.id);
+                
+                // Emitir mensaje enviado en tiempo real
+                this.emitNewMessage(message, conversation, contact);
             }
         } catch (error) {
             console.error('Error procesando mensaje creado:', error);
@@ -150,25 +227,86 @@ class MessageHandler {
 
     async saveMessage(message, conversationId, contactId) {
         try {
+            // Obtener información de media
+            const mediaInfo = await this.processMessageMedia(message);
+            
             const messageData = {
                 whatsapp_message_id: message.id._serialized,
                 conversation_id: conversationId,
                 contact_id: contactId,
                 from_me: message.fromMe,
                 message_type: this.getMessageType(message),
-                content: message.body || null,
-                media_url: await this.getMediaUrl(message),
+                content: message.body || (mediaInfo.caption || null),
+                media_url: mediaInfo.url,
                 timestamp: new Date(message.timestamp * 1000).toISOString(),
                 status: 'received',
-                reply_to: message.hasQuotedMsg ? message.quotedMsgId : null
+                reply_to: message.hasQuotedMsg ? message.quotedMsgId : null,
+                // Campos adicionales para media
+                media_mimetype: mediaInfo.mimetype,
+                media_filename: mediaInfo.filename,
+                media_size: mediaInfo.size
             };
 
             await this.db.createMessage(messageData);
-            console.log(`💾 Mensaje guardado en BD: ${message.id._serialized}`);
+            console.log(`💾 Mensaje guardado en BD: ${message.id._serialized} ${mediaInfo.url ? '📎' : '💬'}`);
 
         } catch (error) {
             console.error('Error guardando mensaje:', error);
             throw error;
+        }
+    }
+
+    async processMessageMedia(message) {
+        const defaultResult = {
+            url: null,
+            mimetype: null,
+            filename: null,
+            size: null,
+            caption: null
+        };
+
+        try {
+            if (!message.hasMedia) {
+                return defaultResult;
+            }
+
+            const media = await message.downloadMedia();
+            if (!media) {
+                return defaultResult;
+            }
+
+            // Crear directorio para media si no existe
+            const fs = require('fs');
+            const path = require('path');
+            const mediaDir = path.join(process.cwd(), 'media', new Date().getFullYear().toString(), 
+                                      String(new Date().getMonth() + 1).padStart(2, '0'));
+            
+            if (!fs.existsSync(mediaDir)) {
+                fs.mkdirSync(mediaDir, { recursive: true });
+            }
+
+            // Generar nombre de archivo único
+            const fileExtension = this.getFileExtension(media.mimetype);
+            const fileName = `${message.id._serialized}${fileExtension}`;
+            const filePath = path.join(mediaDir, fileName);
+            
+            // Guardar archivo
+            const buffer = Buffer.from(media.data, 'base64');
+            fs.writeFileSync(filePath, buffer);
+            
+            // Retornar información completa
+            const relativePath = path.relative(process.cwd(), filePath);
+            return {
+                url: `/${relativePath.replace(/\\/g, '/')}`,
+                mimetype: media.mimetype,
+                filename: media.filename || fileName,
+                size: buffer.length,
+                caption: message.body || null
+            };
+
+        } catch (error) {
+            console.error('Error procesando media:', error);
+            return defaultResult;
         }
     }
 
@@ -259,15 +397,56 @@ class MessageHandler {
         try {
             if (message.hasMedia) {
                 const media = await message.downloadMedia();
-                // Aquí podrías guardar el archivo y devolver la URL
-                // Por ahora solo devolvemos el tipo de media
-                return `media_${message.type}_${message.id._serialized}`;
+                
+                if (media) {
+                    // Crear directorio para media si no existe
+                    const fs = require('fs');
+                    const path = require('path');
+                    const mediaDir = path.join(process.cwd(), 'media', new Date().getFullYear().toString(), 
+                                              String(new Date().getMonth() + 1).padStart(2, '0'));
+                    
+                    if (!fs.existsSync(mediaDir)) {
+                        fs.mkdirSync(mediaDir, { recursive: true });
+                    }
+
+                    // Generar nombre de archivo único
+                    const fileExtension = this.getFileExtension(media.mimetype);
+                    const fileName = `${message.id._serialized}${fileExtension}`;
+                    const filePath = path.join(mediaDir, fileName);
+                    
+                    // Guardar archivo
+                    fs.writeFileSync(filePath, media.data, 'base64');
+                    
+                    // Retornar URL relativa
+                    const relativePath = path.relative(process.cwd(), filePath);
+                    return `/${relativePath.replace(/\\/g, '/')}`;
+                }
             }
             return null;
         } catch (error) {
             console.error('Error obteniendo media URL:', error);
             return null;
         }
+    }
+
+    getFileExtension(mimetype) {
+        const extensions = {
+            'image/jpeg': '.jpg',
+            'image/png': '.png',
+            'image/gif': '.gif',
+            'image/webp': '.webp',
+            'audio/mpeg': '.mp3',
+            'audio/mp4': '.m4a',
+            'audio/ogg': '.ogg',
+            'video/mp4': '.mp4',
+            'video/quicktime': '.mov',
+            'application/pdf': '.pdf',
+            'application/msword': '.doc',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+            'text/plain': '.txt'
+        };
+        
+        return extensions[mimetype] || '.bin';
     }
 
     async getContactProfilePic(contact) {
@@ -320,6 +499,265 @@ class MessageHandler {
             return message;
         } catch (error) {
             console.error('Error enviando mensaje:', error);
+            throw error;
+        }
+    }
+
+    // Nuevos métodos para eventos en tiempo real
+
+    async handleChatUpdate(chat) {
+        try {
+            console.log(`💬 Chat actualizado: ${chat.id._serialized}`);
+            
+            // Emitir actualización del chat
+            if (this.io) {
+                this.io.emit('chat_updated', {
+                    chatId: chat.id._serialized,
+                    name: chat.name,
+                    unreadCount: chat.unreadCount,
+                    lastMessage: chat.lastMessage,
+                    timestamp: new Date().toISOString()
+                });
+            }
+        } catch (error) {
+            console.error('Error manejando actualización de chat:', error);
+        }
+    }
+
+    async handleMessageEdit(message, newBody, prevBody) {
+        try {
+            console.log(`✏️ Mensaje editado: ${message.id._serialized}`);
+            
+            // Actualizar mensaje en la base de datos
+            const query = `
+                UPDATE messages 
+                SET content = ?, updated_at = CURRENT_TIMESTAMP 
+                WHERE whatsapp_message_id = ?
+            `;
+            
+            await new Promise((resolve, reject) => {
+                this.db.db.run(query, [newBody, message.id._serialized], function(err) {
+                    if (err) reject(err);
+                    else resolve(this.changes);
+                });
+            });
+
+            // Emitir edición en tiempo real
+            if (this.io) {
+                this.io.emit('message_edited', {
+                    messageId: message.id._serialized,
+                    newContent: newBody,
+                    previousContent: prevBody,
+                    timestamp: new Date().toISOString()
+                });
+            }
+        } catch (error) {
+            console.error('Error manejando edición de mensaje:', error);
+        }
+    }
+
+    async handleMessageRevoke(message) {
+        try {
+            console.log(`🗑️ Mensaje eliminado: ${message.id._serialized}`);
+            
+            // Marcar mensaje como eliminado en la base de datos
+            const query = `
+                UPDATE messages 
+                SET content = '[Mensaje eliminado]', status = 'revoked', updated_at = CURRENT_TIMESTAMP 
+                WHERE whatsapp_message_id = ?
+            `;
+            
+            await new Promise((resolve, reject) => {
+                this.db.db.run(query, [message.id._serialized], function(err) {
+                    if (err) reject(err);
+                    else resolve(this.changes);
+                });
+            });
+
+            // Emitir eliminación en tiempo real
+            if (this.io) {
+                this.io.emit('message_revoked', {
+                    messageId: message.id._serialized,
+                    timestamp: new Date().toISOString()
+                });
+            }
+        } catch (error) {
+            console.error('Error manejando eliminación de mensaje:', error);
+        }
+    }
+
+    emitNewMessage(message, conversation, contact) {
+        try {
+            if (this.io) {
+                const messageData = {
+                    id: message.id._serialized,
+                    conversationId: conversation.id,
+                    contactId: contact.id,
+                    contactName: contact.name,
+                    fromMe: message.fromMe,
+                    content: message.body,
+                    type: this.getMessageType(message),
+                    timestamp: new Date(message.timestamp * 1000).toISOString(),
+                    chatId: message.fromMe ? message.to : message.from
+                };
+
+                // Emitir nuevo mensaje
+                this.io.emit('new_message', messageData);
+                
+                // Emitir actualización de conversación
+                this.io.emit('conversation_updated', {
+                    conversationId: conversation.id,
+                    lastMessage: message.body,
+                    lastMessageDate: messageData.timestamp,
+                    unreadCount: message.fromMe ? 0 : 1
+                });
+            }
+        } catch (error) {
+            console.error('Error emitiendo nuevo mensaje:', error);
+        }
+    }
+
+    emitTypingStatus(state) {
+        try {
+            if (this.io && state && state.chatId) {
+                this.io.emit('typing_status', {
+                    chatId: state.chatId,
+                    isTyping: state.isTyping || false,
+                    timestamp: new Date().toISOString()
+                });
+            }
+        } catch (error) {
+            console.error('Error emitiendo estado de escritura:', error);
+        }
+    }
+
+    // Método para emitir actualizaciones de contactos
+    emitContactsUpdate(contacts) {
+        try {
+            if (this.io) {
+                this.io.emit('contacts_updated', {
+                    contacts: contacts.map(contact => ({
+                        id: contact.whatsapp_id,
+                        name: contact.name,
+                        phone: contact.phone,
+                        isOnline: contact.isOnline || false,
+                        lastSeen: contact.lastSeen || null
+                    })),
+                    timestamp: new Date().toISOString()
+                });
+            }
+        } catch (error) {
+            console.error('Error emitiendo actualización de contactos:', error);
+        }
+    }
+
+    // Verificar si un mensaje ya existe en la base de datos
+    async checkMessageExists(whatsappMessageId) {
+        try {
+            const query = `
+                SELECT id FROM messages 
+                WHERE whatsapp_message_id = ? 
+                LIMIT 1
+            `;
+
+            return new Promise((resolve, reject) => {
+                this.db.db.get(query, [whatsappMessageId], (err, row) => {
+                    if (err) reject(err);
+                    else resolve(!!row);
+                });
+            });
+        } catch (error) {
+            console.error('Error verificando existencia de mensaje:', error);
+            return false;
+        }
+    }
+
+    // Persistir mensaje de tiempo real si no existe
+    async persistRealtimeMessage(messageData) {
+        try {
+            const exists = await this.checkMessageExists(messageData.id);
+            if (exists) {
+                console.log(`📨 Mensaje ${messageData.id} ya existe en BD`);
+                return;
+            }
+
+            console.log(`💾 Persistiendo mensaje de tiempo real: ${messageData.id}`);
+
+            // Obtener o crear contacto
+            const contact = await this.getOrCreateContactFromRealtime(messageData);
+            
+            // Obtener o crear conversación
+            const conversation = await this.getOrCreateConversationFromRealtime(messageData, contact.id);
+
+            // Crear mensaje en BD
+            const dbMessageData = {
+                whatsapp_message_id: messageData.id,
+                conversation_id: conversation.id,
+                contact_id: contact.id,
+                from_me: messageData.fromMe,
+                message_type: messageData.type || 'text',
+                content: messageData.content,
+                timestamp: messageData.timestamp,
+                status: messageData.fromMe ? 'sent' : 'received'
+            };
+
+            await this.db.createMessage(dbMessageData);
+            console.log(`✅ Mensaje persistido en BD: ${messageData.id}`);
+
+        } catch (error) {
+            console.error('Error persistiendo mensaje de tiempo real:', error);
+        }
+    }
+
+    // Obtener o crear contacto desde datos de tiempo real
+    async getOrCreateContactFromRealtime(messageData) {
+        try {
+            const chatId = messageData.chatId;
+            let contact = await this.db.findContactByWhatsAppId(chatId);
+
+            if (!contact) {
+                const contactData = {
+                    whatsapp_id: chatId,
+                    name: messageData.contactName || null,
+                    phone: null, // Se actualizará cuando se sincronice
+                    status: 'active'
+                };
+
+                const contactDbId = await this.db.createContact(contactData);
+                contact = await this.db.findContactByWhatsAppId(chatId);
+                console.log(`👤 Nuevo contacto creado desde tiempo real: ${chatId}`);
+            }
+
+            return contact;
+        } catch (error) {
+            console.error('Error obteniendo/creando contacto desde tiempo real:', error);
+            throw error;
+        }
+    }
+
+    // Obtener o crear conversación desde datos de tiempo real
+    async getOrCreateConversationFromRealtime(messageData, contactId) {
+        try {
+            const chatId = messageData.chatId;
+            let conversation = await this.db.findConversationByChatId(chatId);
+
+            if (!conversation) {
+                const conversationData = {
+                    contact_id: contactId,
+                    whatsapp_chat_id: chatId,
+                    is_group: chatId.includes('@g.us'),
+                    status: 'open',
+                    priority: 'normal'
+                };
+
+                const conversationDbId = await this.db.createConversation(conversationData);
+                conversation = await this.db.findConversationByChatId(chatId);
+                console.log(`💬 Nueva conversación creada desde tiempo real: ${chatId}`);
+            }
+
+            return conversation;
+        } catch (error) {
+            console.error('Error obteniendo/creando conversación desde tiempo real:', error);
             throw error;
         }
     }

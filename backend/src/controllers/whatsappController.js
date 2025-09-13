@@ -1,7 +1,8 @@
 class WhatsAppController {
-    constructor(whatsappService, messageHandler) {
+    constructor(whatsappService, messageHandler, io) {
         this.whatsapp = whatsappService;
         this.messageHandler = messageHandler;
+        this.io = io;
         this.syncStatus = {
             isRunning: false,
             progress: 0,
@@ -11,6 +12,42 @@ class WhatsAppController {
             startTime: null,
             endTime: null
         };
+        
+        // Escuchar eventos de sincronización automática
+        this.setupEventListeners();
+    }
+
+    setupEventListeners() {
+        this.whatsapp.on('auto_sync_start', async () => {
+            console.log('🔄 Iniciando sincronización automática');
+            try {
+                // Obtener todos los chats y sincronizar
+                const chats = await this.whatsapp.getChats();
+                const individualChats = chats.filter(chat => !chat.isGroup);
+                
+                // Procesar en segundo plano
+                this.processChatsBatch(individualChats, 10, 1000);
+            } catch (error) {
+                console.error('Error en sincronización automática:', error);
+            }
+        });
+
+        // Escuchar eventos de estado de WhatsApp
+        this.whatsapp.on('status_check', (status) => {
+            if (this.io) {
+                this.io.emit('whatsapp_status', status);
+            }
+        });
+
+        // Escuchar sincronización completa de contactos
+        this.whatsapp.on('full_contacts_sync', (contacts) => {
+            if (this.io) {
+                this.io.emit('contacts_full_sync', {
+                    total: contacts.length,
+                    timestamp: new Date().toISOString()
+                });
+            }
+        });
     }
 
     // Obtener estado del cliente WhatsApp
@@ -332,6 +369,74 @@ class WhatsAppController {
                 success: false,
                 error: error.message
             });
+        }
+    }
+
+    // Forzar sincronización inmediata
+    forceSync = async (req, res) => {
+        try {
+            const result = await this.whatsapp.forceSyncNow();
+            
+            // Emitir evento en tiempo real
+            if (this.io) {
+                this.io.emit('sync_forced', {
+                    timestamp: new Date().toISOString(),
+                    success: true
+                });
+            }
+
+            res.json({
+                success: true,
+                data: result
+            });
+        } catch (error) {
+            console.error('Error forzando sincronización:', error);
+            res.status(500).json({
+                success: false,
+                error: error.message
+            });
+        }
+    }
+
+    // Obtener contactos con paginación mejorada
+    getContactsPaginated = async (req, res) => {
+        try {
+            const { page = 1, limit = 50, search = '' } = req.query;
+            
+            const options = {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                search: search.trim()
+            };
+
+            const result = await this.whatsapp.getContacts(options);
+
+            res.json({
+                success: true,
+                data: result
+            });
+        } catch (error) {
+            console.error('Error obteniendo contactos paginados:', error);
+            res.status(500).json({
+                success: false,
+                error: error.message
+            });
+        }
+    }
+
+    // Método para manejar solicitudes de sincronización desde WebSocket
+    async handleSyncRequest() {
+        try {
+            console.log('🔄 Solicitud de sincronización desde WebSocket');
+            await this.whatsapp.forceSyncNow();
+        } catch (error) {
+            console.error('Error en solicitud de sincronización:', error);
+            if (this.io) {
+                this.io.emit('sync_error', {
+                    error: error.message,
+                    timestamp: new Date().toISOString()
+                });
+            }
         }
     }
 }

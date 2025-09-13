@@ -3,7 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { contactsApi } from '@/lib/api';
+import { contactsApi, whatsappApi } from '@/lib/api';
+import { useRealTime } from '@/hooks/useRealTime';
 import type { Contact } from '@/types';
 import { 
   Users, 
@@ -17,26 +18,50 @@ import {
   Edit,
   Trash2,
   Archive,
-  User
+  User,
+  RefreshCw,
+  Download
 } from 'lucide-react';
 import { formatPhoneNumber } from '@/lib/utils';
 
 export function Contacts() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'blocked' | 'archived'>('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(20);
+  const [syncingWhatsApp, setSyncingWhatsApp] = useState(false);
   const queryClient = useQueryClient();
 
-  const { data: contacts, isLoading, error } = useQuery<Contact[]>({
-    queryKey: ['contacts', searchTerm, filterStatus],
+  // Usar tiempo real para actualizaciones automáticas
+  useRealTime({
+    onContactUpdate: (data) => {
+      console.log('📞 Contactos actualizados en tiempo real:', data);
+      queryClient.invalidateQueries({ queryKey: ['contacts'] });
+    },
+    enableToasts: true
+  });
+
+  const { data: contactsResponse, isLoading, error } = useQuery({
+    queryKey: ['contacts', searchTerm, filterStatus, currentPage, itemsPerPage],
     queryFn: async () => {
       const response = await contactsApi.getContacts({
         search: searchTerm,
         status: filterStatus === 'all' ? undefined : filterStatus,
+        page: currentPage,
+        limit: itemsPerPage,
       });
-      return response.data.data.contacts;
+      return response.data;
     },
     refetchInterval: 30000,
   });
+
+  const contacts = contactsResponse?.data?.contacts || [];
+  const pagination = contactsResponse?.data?.pagination || {
+    page: 1,
+    limit: itemsPerPage,
+    total: 0,
+    totalPages: 1
+  };
 
   const deleteMutation = useMutation({
     mutationFn: (contactId: number) => contactsApi.deleteContact(contactId),
@@ -51,6 +76,22 @@ export function Contacts() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['contacts'] });
     },
+  });
+
+  // Sincronización desde WhatsApp
+  const syncWhatsAppContactsMutation = useMutation({
+    mutationFn: () => whatsappApi.getContactsPaginated({ limit: 100 }),
+    onMutate: () => {
+      setSyncingWhatsApp(true);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['contacts'] });
+      setSyncingWhatsApp(false);
+    },
+    onError: (error) => {
+      console.error('Error sincronizando contactos:', error);
+      setSyncingWhatsApp(false);
+    }
   });
 
   const getStatusBadge = (status: string) => {
@@ -123,10 +164,21 @@ export function Contacts() {
           <Users className="h-8 w-8" />
           Contactos
         </h1>
-        <Button className="flex items-center gap-2">
-          <Plus className="h-4 w-4" />
-          Nuevo Contacto
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            onClick={() => syncWhatsAppContactsMutation.mutate()}
+            disabled={syncingWhatsApp}
+            className="flex items-center gap-2"
+          >
+            <RefreshCw className={`h-4 w-4 ${syncingWhatsApp ? 'animate-spin' : ''}`} />
+            {syncingWhatsApp ? 'Sincronizando...' : 'Sincronizar WhatsApp'}
+          </Button>
+          <Button className="flex items-center gap-2">
+            <Plus className="h-4 w-4" />
+            Nuevo Contacto
+          </Button>
+        </div>
       </div>
 
       {/* Filtros y búsqueda */}

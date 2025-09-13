@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { conversationsApi, whatsappApi } from '@/lib/api';
+import { useRealTime } from '@/hooks/useRealTime';
 import type { Conversation } from '@/types';
 import { 
   MessageSquare, 
@@ -15,7 +16,8 @@ import {
   CheckCircle,
   Circle,
   Archive,
-  MoreVertical
+  MoreVertical,
+  RefreshCw
 } from 'lucide-react';
 import { safeFormatDistanceToNow } from '@/lib/utils';
 
@@ -25,6 +27,19 @@ export function Conversations() {
   const [syncProgress, setSyncProgress] = useState<any>(null);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+
+  // Usar tiempo real para actualizaciones automáticas
+  const { requestSync } = useRealTime({
+    onNewMessage: (message) => {
+      console.log('📨 Nuevo mensaje en conversaciones:', message);
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+    },
+    onConversationUpdate: (data) => {
+      console.log('💬 Conversación actualizada:', data);
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+    },
+    enableToasts: true
+  });
 
   const handleConversationClick = (conversationId: number) => {
     navigate(`/conversations/${conversationId}`);
@@ -174,13 +189,23 @@ export function Conversations() {
           <Button 
             variant="outline" 
             size="sm"
+            onClick={() => requestSync()}
+            className="flex items-center gap-2"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Sync Tiempo Real
+          </Button>
+          
+          <Button 
+            variant="outline" 
+            size="sm"
             onClick={() => syncChatsMutation.mutate({ batchSize: 10, delay: 1000 })}
             disabled={syncChatsMutation.isPending || syncProgress?.isRunning}
           >
             <MessageSquare className="h-4 w-4 mr-2" />
             {syncProgress?.isRunning ? 
               `Sincronizando... ${syncProgress.progress || 0}%` : 
-              syncChatsMutation.isPending ? 'Iniciando...' : 'Sincronizar WhatsApp'
+              syncChatsMutation.isPending ? 'Iniciando...' : 'Sincronizar Lote'
             }
           </Button>
           {syncProgress?.isRunning && (

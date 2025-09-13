@@ -57,6 +57,9 @@ class WhatsAppService extends EventEmitter {
             this.isReady = true;
             this.qrString = null;
             this.emit('ready');
+            
+            // Iniciar sincronización automática cada 5 minutos
+            this.startAutoSync();
         });
 
         // Evento cuando se autentica
@@ -97,6 +100,60 @@ class WhatsAppService extends EventEmitter {
         this.client.on('message_ack', (message, ack) => {
             this.emit('message_ack', message, ack);
         });
+
+        // Eventos adicionales para mejor sincronización
+        this.client.on('message_edit', (message, newBody, prevBody) => {
+            console.log(`✏️ Mensaje editado en chat ${message.from}`);
+            this.emit('message_edit', message, newBody, prevBody);
+        });
+
+        this.client.on('message_revoke_everyone', (message) => {
+            console.log(`🗑️ Mensaje eliminado en chat ${message.from}`);
+            this.emit('message_revoke_everyone', message);
+        });
+
+        this.client.on('message_revoke_me', (message) => {
+            console.log(`🗑️ Mensaje eliminado para mí en chat ${message.from}`);
+            this.emit('message_revoke_me', message);
+        });
+
+        // Eventos de chat
+        this.client.on('chat_updated', (chat) => {
+            console.log(`💬 Chat actualizado: ${chat.id._serialized}`);
+            this.emit('chat_updated', chat);
+        });
+
+        this.client.on('chat_removed', (chat) => {
+            console.log(`💬 Chat eliminado: ${chat.id._serialized}`);
+            this.emit('chat_removed', chat);
+        });
+
+        // Eventos de contactos
+        this.client.on('contact_changed', (message, oldId, newId, isContact) => {
+            console.log(`👤 Contacto cambiado: ${oldId} -> ${newId}`);
+            this.emit('contact_changed', message, oldId, newId, isContact);
+        });
+
+        // Eventos de estado de presencia
+        this.client.on('change_state', (state) => {
+            this.emit('change_state', state);
+        });
+
+        // Evento cuando alguien está escribiendo
+        this.client.on('typing', (chatId, isTyping) => {
+            this.emit('typing', chatId, isTyping);
+        });
+
+        // Evento de llamadas
+        this.client.on('call', (call) => {
+            console.log(`📞 Llamada recibida de ${call.from}`);
+            this.emit('call', call);
+        });
+
+        // Evento de cambio de estado de conexión
+        this.client.on('change_battery', (batteryInfo) => {
+            this.emit('change_battery', batteryInfo);
+        });
     }
 
     async initialize() {
@@ -124,7 +181,62 @@ class WhatsAppService extends EventEmitter {
         }
     }
 
-    async getContacts() {
+    async getContacts(options = {}) {
+        if (!this.isReady) {
+            throw new Error('Cliente de WhatsApp no está listo');
+        }
+
+        try {
+            const { 
+                page = 1, 
+                limit = 50, 
+                search = '', 
+                onlyMyContacts = true 
+            } = options;
+
+            // Obtener todos los contactos primero
+            let contacts = await this.client.getContacts();
+            
+            // Filtrar contactos
+            if (onlyMyContacts) {
+                contacts = contacts.filter(contact => contact.isMyContact);
+            }
+
+            // Aplicar búsqueda si se proporciona
+            if (search) {
+                const searchLower = search.toLowerCase();
+                contacts = contacts.filter(contact => 
+                    (contact.name && contact.name.toLowerCase().includes(searchLower)) ||
+                    (contact.pushname && contact.pushname.toLowerCase().includes(searchLower)) ||
+                    (contact.number && contact.number.includes(search))
+                );
+            }
+
+            // Aplicar paginación
+            const totalContacts = contacts.length;
+            const startIndex = (page - 1) * limit;
+            const endIndex = startIndex + limit;
+            const paginatedContacts = contacts.slice(startIndex, endIndex);
+
+            return {
+                contacts: paginatedContacts,
+                pagination: {
+                    page,
+                    limit,
+                    total: totalContacts,
+                    totalPages: Math.ceil(totalContacts / limit),
+                    hasNextPage: endIndex < totalContacts,
+                    hasPrevPage: page > 1
+                }
+            };
+        } catch (error) {
+            console.error('Error obteniendo contactos:', error);
+            throw error;
+        }
+    }
+
+    // Método auxiliar para obtener todos los contactos sin paginación
+    async getAllContacts() {
         if (!this.isReady) {
             throw new Error('Cliente de WhatsApp no está listo');
         }
@@ -227,7 +339,109 @@ class WhatsAppService extends EventEmitter {
         }
     }
 
+    // Iniciar sincronización automática periódica optimizada
+    startAutoSync() {
+        console.log('🔄 Iniciando sincronización automática optimizada');
+        
+        // Sincronización de chats menos frecuente pero más inteligente
+        this.chatSyncInterval = setInterval(async () => {
+            if (this.isReady) {
+                try {
+                    console.log('🔄 Sincronización automática de chats iniciada');
+                    this.emit('auto_sync_start');
+                } catch (error) {
+                    console.error('Error en sincronización automática:', error);
+                }
+            }
+        }, 10 * 60 * 1000); // 10 minutos
+
+        // Sincronización de contactos optimizada - solo cambios
+        this.contactSyncInterval = setInterval(async () => {
+            if (this.isReady) {
+                try {
+                    // Obtener solo los primeros 100 contactos para verificar cambios
+                    const contactsData = await this.getContacts({ limit: 100 });
+                    this.emit('contacts_update', contactsData.contacts);
+                } catch (error) {
+                    console.error('Error obteniendo contactos:', error);
+                }
+            }
+        }, 5 * 60 * 1000); // 5 minutos
+
+        // Verificación de estado cada 30 segundos
+        this.statusCheckInterval = setInterval(() => {
+            if (this.isReady) {
+                this.emit('status_check', this.getStatus());
+            }
+        }, 30 * 1000); // 30 segundos
+
+        // Sincronización completa de contactos cada hora
+        this.fullContactSyncInterval = setInterval(async () => {
+            if (this.isReady) {
+                try {
+                    console.log('🔄 Sincronización completa de contactos');
+                    const allContacts = await this.getAllContacts();
+                    this.emit('full_contacts_sync', allContacts);
+                } catch (error) {
+                    console.error('Error en sincronización completa de contactos:', error);
+                }
+            }
+        }, 60 * 60 * 1000); // 1 hora
+    }
+
+    // Método para detener la sincronización automática
+    stopAutoSync() {
+        console.log('🛑 Deteniendo sincronización automática');
+        
+        if (this.chatSyncInterval) {
+            clearInterval(this.chatSyncInterval);
+            this.chatSyncInterval = null;
+        }
+        
+        if (this.contactSyncInterval) {
+            clearInterval(this.contactSyncInterval);
+            this.contactSyncInterval = null;
+        }
+        
+        if (this.statusCheckInterval) {
+            clearInterval(this.statusCheckInterval);
+            this.statusCheckInterval = null;
+        }
+        
+        if (this.fullContactSyncInterval) {
+            clearInterval(this.fullContactSyncInterval);
+            this.fullContactSyncInterval = null;
+        }
+    }
+
+    // Método para sincronización manual inmediata
+    async forceSyncNow() {
+        if (!this.isReady) {
+            throw new Error('Cliente de WhatsApp no está listo');
+        }
+
+        try {
+            console.log('🔄 Forzando sincronización inmediata');
+            
+            // Sincronizar chats
+            this.emit('auto_sync_start');
+            
+            // Sincronizar contactos
+            const contactsData = await this.getContacts();
+            this.emit('contacts_update', contactsData.contacts);
+            
+            console.log('✅ Sincronización forzada completada');
+            return { success: true, message: 'Sincronización completada' };
+        } catch (error) {
+            console.error('Error en sincronización forzada:', error);
+            throw error;
+        }
+    }
+
     async destroy() {
+        // Detener sincronización automática
+        this.stopAutoSync();
+        
         if (this.client) {
             await this.client.destroy();
             this.isReady = false;

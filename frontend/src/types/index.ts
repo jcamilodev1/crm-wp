@@ -48,9 +48,12 @@ export interface Message {
   message_type: 'text' | 'image' | 'audio' | 'video' | 'document' | 'sticker' | 'location' | 'contact';
   content?: string;
   media_url?: string;
+  media_mimetype?: string;
+  media_filename?: string;
+  media_size?: number;
   timestamp: string;
-  status: 'sent' | 'delivered' | 'read' | 'failed';
-  is_starred: boolean;
+  status: 'sent' | 'delivered' | 'read' | 'failed' | 'received';
+  is_starred?: boolean;
   reply_to?: string;
   created_at: string;
 }

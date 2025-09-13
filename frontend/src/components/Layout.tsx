@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { SocketStatus } from '@/components/SocketStatus';
 import { 
   MessageSquare, 
   Users, 
@@ -126,7 +127,10 @@ export function Layout({ children }: LayoutProps) {
               <Menu className="h-4 w-4" />
             </Button>
             <div className="flex-1" />
-            {/* Aquí se pueden agregar elementos del header como notificaciones, usuario, etc. */}
+            <div className="flex items-center gap-4">
+              <SocketStatus />
+              {/* Aquí se pueden agregar más elementos del header como notificaciones, usuario, etc. */}
+            </div>
           </div>
         </header>
 
